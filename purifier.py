@@ -1,248 +1,29 @@
-import ssl
-from base64 import b64decode
 import copy
 import dataclasses
-import json
+import json as json_lib
+import ssl
+from base64 import b64decode
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Generic, TypeVar, Optional, Dict, Callable, Literal, List, Union
 
 import cloudscraper
-import jq
+import jq as jq_lib
 import lxml.html
-import lxml.etree
-
-import requests
 from bs4 import BeautifulSoup
 from jsonfinder import jsonfinder
-from parsy import string, seq, regex, forward_declaration, success, generate
+from lxml.html import HtmlElement
+import lxml.etree
+import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import PoolManager
 from urllib3.util.ssl_ import create_urllib3_context
 
 
-__all__ = ["scrape", "scrape_impl", "parse_scraper", "ScraperState"]
+A = TypeVar("A")
+B = TypeVar("B")
+C = TypeVar("C")
 
-
-@dataclass
-class Scraper:
-    pass
-
-
-@dataclass
-class Pipe(Scraper):
-    l: Scraper
-    r: Scraper
-
-
-@dataclass
-class MaybePipe(Scraper):
-    l: Scraper
-    r: Scraper
-
-
-@dataclass
-class Map(Scraper):
-    map_scraper: Scraper
-
-
-@dataclass
-class Action(Scraper):
-    pass
-
-
-@dataclass
-class Fields(Action):
-    fields: dict[str, Scraper]
-
-
-@dataclass
-class Base64Decode(Action):
-    pass
-
-
-@dataclass
-class DebugDumpHtml(Action):
-    pass
-
-
-@dataclass
-class DebugDumpJson(Action):
-    pass
-
-
-@dataclass
-class FindJson(Action):
-    pass
-
-
-@dataclass
-class Html(Action):
-    pass
-
-
-@dataclass
-class HtmlToText(Action):
-    pass
-
-
-@dataclass
-class Jq(Action):
-    path: str
-
-
-@dataclass
-class Json(Action):
-    pass
-
-
-@dataclass
-class RequestGet(Action):
-    headers: Optional[dict[str, str]] = None
-    request_lib: Literal["requests", "cloudscraper"] = "requests"
-
-
-@dataclass
-class Rstrip(Action):
-    chars: Optional[str] = None
-
-
-@dataclass
-class XpathAll(Action):
-    path: str
-
-
-@dataclass
-class XpathOne(Action):
-    path: str
-
-
-def parse_scraper(scraper_str: str) -> Scraper:
-    whitespace = (string(" ") | string("\n")).many()
-    ws = lambda x: whitespace >> x << whitespace
-
-    trailing_comma = string(",").optional()
-
-    identifier = regex(r"[a-z_][a-z0-9_]*")
-    quoted_string = (
-        (string('"') >> regex(r'[^"]').many().concat() << string('"'))
-        | (string("'") >> regex(r"[^']").many().concat() << string("'"))
-    ).desc("quoted string")
-
-    string_dict_pair = seq(
-        quoted_string << ws(string(":")),
-        quoted_string,
-    )
-    string_dict = (
-        string("{")
-        >> ws(string_dict_pair.sep_by(ws(string(","))))
-        << trailing_comma
-        << whitespace
-        << string("}")
-    ).map(dict)
-
-    action_name = (
-        string("base64_decode")
-        | string("debug_dump_html")
-        | string("debug_dump_json")
-        | string("find_json")
-        | string("html_to_text")
-        | string("html")
-        | string("jq")
-        | string("json")
-        | string("request_get")
-        | string("rstrip")
-        | string("xpath_all")
-        | string("xpath_one")
-    )
-
-    scraper_by_name = {
-        "base64_decode": Base64Decode,
-        "debug_dump_html": DebugDumpHtml,
-        "debug_dump_json": DebugDumpJson,
-        "find_json": FindJson,
-        "html": Html,
-        "html_to_text": HtmlToText,
-        "jq": Jq,
-        "json": Json,
-        "request_get": RequestGet,
-        "rstrip": Rstrip,
-        "xpath_all": XpathAll,
-        "xpath_one": XpathOne,
-    }
-
-    arg = quoted_string
-    args = arg.sep_by(ws(string(",")), min=1) << whitespace << trailing_comma
-    kwarg_of_val = lambda val: seq(
-        identifier << ws(string("=")),
-        val,
-    )
-    kwargs_of_val = lambda val: (
-        (
-            kwarg_of_val(val).sep_by(ws(string(",")), min=1)
-            << whitespace
-            << trailing_comma
-        ).map(dict)
-    )
-
-    scraper = forward_declaration()
-
-    action = (
-        # only args
-        seq(
-            action=action_name,
-            args=string("(") >> ws(args) << string(")"),
-            kwargs=success({}),
-        )
-        # only kwargs
-        | seq(
-            action=action_name,
-            args=success([]),
-            kwargs=string("(")
-            >> ws(kwargs_of_val(quoted_string | string_dict))
-            << string(")"),
-        )
-        # or no () at all
-        | seq(
-            action=action_name,
-            args=success([]),
-            kwargs=success({}),
-        )
-    ).map(lambda x: scraper_by_name[x["action"]](*x["args"], **x["kwargs"]))
-
-    fields = (
-        string("fields") >> string("(") >> ws(kwargs_of_val(scraper)) << string(")")
-    ).map(Fields)
-
-    map_ = (string("map") >> string("(") >> ws(scraper) << string(")")).map(Map)
-
-    expr = action | fields | map_
-
-    @generate
-    def sep_by_operators():
-        a = yield expr
-        while True:
-            op = yield ws(string("|?") | string("|")) | success(None)
-            if op is None:
-                return a
-            elif op == "|?":
-                b = yield expr
-                a = MaybePipe(a, b)
-            elif op == "|":
-                b = yield expr
-                a = Pipe(a, b)
-
-    scraper.become(ws(sep_by_operators))
-    return scraper.parse(scraper_str)
-
-
-@dataclass(frozen=True)
-class ScraperState:
-    url: str
-    state: object
-
-
-class ScrapeError(Exception):
-    pass
+T = TypeVar("T")
 
 
 # https://scrapfly.io/blog/how-to-avoid-web-scraping-blocking-tls/
@@ -260,100 +41,243 @@ class TlsAdapter(HTTPAdapter):
         self.poolmanager = PoolManager(*pool_args, ssl_context=ctx, **pool_kwargs)
 
 
-def perform_action(s: Scraper, state: ScraperState) -> ScraperState:
-    if isinstance(s, RequestGet):
+@dataclass(frozen=True)
+class ScraperState(Generic[A]):
+    url: str
+    state: A
+
+    def map(self, f: Callable[[A], B]) -> "ScraperState[B]":
+        state2 = f(self.state)
+        return dataclasses.replace(self, state=state2)  # type: ignore
+
+
+class ScrapeError(Exception):
+    pass
+
+
+class Scraper(Generic[A, B]):
+    def __init__(self, scrape_simple: Optional[Callable[[A], B]] = None) -> None:
+        self._scrape_simple = scrape_simple
+
+    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[B]:
+        if self._scrape_simple is None:
+            raise NotImplementedError
+        else:
+            return state.map(self._scrape_simple)
+
+    def scrape(self, url) -> B:
+        state = ScraperState(state=url, url=url)
+        return self._scrape_impl(state).state
+
+    def __or__(self, other: "Scraper[B, C]") -> "Scraper[A, C]":
+        """
+        a | b
+        """
+        return Pipe(self, other)
+
+    def __mod__(self, other: "Scraper[B, C]") -> "Scraper[A, Optional[C]]":
+        """
+        a % b
+        """
+        return MaybePipe(self, other)
+
+    def __floordiv__(self, other: "Scraper[A, C]") -> "Scraper[A, Union[B, C]]":
+        """
+        a // b
+        """
+        return Alternative(self, other)
+
+
+@dataclass
+class Pipe(Scraper[A, C], Generic[A, B, C]):
+    a: Scraper[A, B]
+    b: Scraper[B, C]
+
+    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[C]:
+        state2 = self.a._scrape_impl(state)
+        return self.b._scrape_impl(state2)
+
+
+@dataclass
+class MaybePipe(Scraper[A, Optional[C]], Generic[A, B, C]):
+    a: Scraper[A, B]
+    b: Scraper[B, C]
+
+    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[Optional[C]]:
+        try:
+            state2 = self.a._scrape_impl(state)
+        except ScrapeError:
+            return dataclasses.replace(state, state=None)  # type: ignore
+        return self.b._scrape_impl(state2)  # type: ignore
+
+
+@dataclass
+class Alternative(Scraper[A, Union[B, C]], Generic[A, B, C]):
+    a: Scraper[A, B]  # possibly `B = Optional[...]`
+    b: Scraper[A, C]  # possibly `C = Optional[...]`
+
+    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[Union[B, C]]:
+        state2 = self.a._scrape_impl(state)
+        if state2.state is not None:
+            return state2  # type: ignore
+        else:
+            return self.b._scrape_impl(state)
+
+
+@dataclass
+class fields(Scraper[T, Dict[str, object]]):
+    fields: Dict[str, Scraper[T, object]]
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.fields = kwargs
+
+    def _scrape_impl(self, state: ScraperState[T]) -> ScraperState[Dict[str, object]]:
+        return dataclasses.replace(
+            state,  # type: ignore
+            state={
+                field: field_scraper._scrape_impl(state).state
+                for field, field_scraper in self.fields.items()
+            },
+        )
+
+
+@dataclass
+class maps(Scraper[List[A], List[B]]):
+    scraper: Scraper[A, B]
+
+    def _scrape_impl(self, state: ScraperState[List[A]]) -> ScraperState[List[B]]:
+        return dataclasses.replace(
+            state,  # type: ignore
+            state=[
+                self.scraper._scrape_impl(dataclasses.replace(state, state=x)).state  # type: ignore
+                for x in state.state
+            ],
+        )
+
+
+def request(
+    headers: Optional[dict[str, str]] = None,
+    lib: Literal["requests", "cloudscraper"] = "requests",
+) -> Scraper[str, str]:
+    def scrape(url: str) -> str:
         session_by_lib = {
             "requests": requests.session,
             "cloudscraper": cloudscraper.create_scraper,
         }
-        session = session_by_lib[s.request_lib]()
+        session = session_by_lib[lib]()
 
         # https://scrapfly.io/blog/how-to-avoid-web-scraping-blocking-tls/
         adapter = TlsAdapter(ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1)  # prioritize TLS 1.2
         session.mount("https://", adapter)
 
-        r = session.get(state.state, headers=s.headers)
+        r = session.get(url, headers=headers)
         r.raise_for_status()
 
-        return dataclasses.replace(state, state=r.text)
-    elif isinstance(s, Html):
+        return r.text
+
+    return Scraper(scrape)
+
+
+@dataclass
+class html(Scraper):
+    def _scrape_impl(self, state: ScraperState[str]) -> ScraperState[HtmlElement]:
         try:
-            html = lxml.html.fromstring(state.state)
-            html.make_links_absolute(state.url)
-            return dataclasses.replace(state, state=html)
+            dom = lxml.html.fromstring(state.state)
+            dom.make_links_absolute(state.url)
+            return dataclasses.replace(state, state=dom)
         except lxml.etree.ParserError:
             raise ScrapeError
-    elif isinstance(s, XpathOne):
-        xs = state.state.xpath(s.path)
+
+
+def xpath(path: str) -> Scraper[HtmlElement, List[HtmlElement]]:
+    return Scraper(lambda dom: dom.xpath(path))
+
+
+def one() -> Scraper[List[A], A]:
+    def scrape(xs: list[A]) -> A:
         if len(xs) != 1:
-            raise ScrapeError(f"{s} found {len(xs)} matches, expected 1")
-        return dataclasses.replace(state, state=xs[0])
-    elif isinstance(s, XpathAll):
-        return dataclasses.replace(state, state=state.state.xpath(s.path))
-    elif isinstance(s, Json):
-        return dataclasses.replace(state, state=json.loads(state.state))
-    elif isinstance(s, Base64Decode):
-        return dataclasses.replace(
-            state, state=b64decode(state.state.encode(), validate=True)
-        )
-    elif isinstance(s, Jq):
-        return dataclasses.replace(
-            state, state=jq.compile(s.path).input(state.state).first()
-        )
-    elif isinstance(s, HtmlToText):
-        html = copy.deepcopy(state.state)
+            raise ScrapeError(f"one() found {len(xs)} matches, expected 1")
+        return xs[0]
+
+    return Scraper(scrape)
+
+
+def first() -> Scraper[List[A], A]:
+    def scrape(xs: list[A]) -> A:
+        if len(xs) == 0:
+            raise ScrapeError(f"first() found 0 matches, expected at least 1")
+        return xs[0]
+
+    return Scraper(scrape)
+
+
+def json() -> Scraper[str, T]:
+    return Scraper(json_lib.loads)
+
+
+def base64() -> Scraper[str, bytes]:
+    return Scraper(lambda b64_str: b64decode(b64_str.encode(), validate=True))
+
+
+def jq(path: str) -> Scraper[A, B]:
+    return Scraper(lambda inp: jq_lib.compile(path).input(inp).first())
+
+
+def html_to_text() -> Scraper[HtmlElement, str]:
+    def scrape(dom: HtmlElement) -> str:
+        dom = copy.deepcopy(dom)
         # FIXME: <p>
-        for br in html.xpath("//br"):
+        for br in dom.xpath("//br"):
             br.tail = "\n" + br.tail if br.tail else "\n"
-        return dataclasses.replace(state, state=html.text_content())
-    elif isinstance(s, Rstrip):
-        return dataclasses.replace(state, state=state.state.rstrip(s.chars))
-    elif isinstance(s, FindJson):
-        # returns first thing in a string that is parseable as json
-        _start, _end, jsn = next(jsonfinder(state.state, json_only=True))
-        return dataclasses.replace(state, state=jsn)
-    elif isinstance(s, DebugDumpJson):
-        print(json.dumps(state.state, indent=4, ensure_ascii=False))
-        return state
-    elif isinstance(s, DebugDumpHtml):
-        string_but_ugly_html = lxml.html.tostring(state.state)
+        return dom.text_content()
+
+    return Scraper(scrape)
+
+
+def rstrip(chars: Optional[str] = None) -> Scraper[str, str]:
+    return Scraper(lambda s: s.rstrip(chars))
+
+
+def find_json() -> Scraper[str, T]:
+    """
+    Returns first thing in a string that is parseable as json.
+    """
+
+    def scrape(s: str) -> T:
+        _start, _end, jsn = next(jsonfinder(s, json_only=True))
+        return jsn
+
+    return Scraper(scrape)
+
+
+def debug_dump_json() -> Scraper[T, T]:
+    def scrape(jsn: T) -> T:
+        print(json_lib.dumps(jsn, indent=4, ensure_ascii=False))
+        return jsn
+
+    return Scraper(scrape)
+
+
+def debug_dump_html() -> Scraper[HtmlElement, HtmlElement]:
+    def scrape(dom: HtmlElement) -> HtmlElement:
+        string_but_ugly_html = lxml.html.tostring(dom)
         soup = BeautifulSoup(string_but_ugly_html, "lxml")
         print(soup.prettify())
-        return state
-    else:
-        raise ValueError(s)
+        return dom
+
+    return Scraper(scrape)
 
 
-def scrape_impl(s: Scraper, state: ScraperState, debug: bool):
-    if debug:
-        print(s)
-        print(repr(state))
-        print()
-
-    if isinstance(s, Pipe):
-        state = dataclasses.replace(state, state=scrape_impl(s.l, state, debug))
-        return scrape_impl(s.r, state, debug)
-    elif isinstance(s, MaybePipe):
-        try:
-            state = dataclasses.replace(state, state=scrape_impl(s.l, state, debug))
-        except ScrapeError:
-            return None
-        return scrape_impl(s.r, state, debug)
-    elif isinstance(s, Fields):
-        return {
-            field: scrape_impl(field_scraper, state, debug)
-            for field, field_scraper in s.fields.items()
-        }
-    elif isinstance(s, Map):
-        return [
-            scrape_impl(s.map_scraper, dataclasses.replace(state, state=x), debug)
-            for x in state.state
-        ]
-    elif isinstance(s, Action):
-        return perform_action(s, state).state
-    else:
-        raise ValueError(s, state)
+def constantly(x: B) -> Scraper[A, B]:
+    """
+    Ignore input and return `x`.
+    """
+    return Scraper(lambda _: x)
 
 
-def scrape(s: str, url: str, debug: bool = False):
-    return scrape_impl(parse_scraper(s), ScraperState(url=url, state=url), debug=debug)
+def take(n: int) -> Scraper[List[T], List[T]]:
+    """
+    Take up to first `n` elements from a list.
+    """
+    return Scraper(lambda xs: xs[:n])
