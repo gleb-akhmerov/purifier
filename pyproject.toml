@@ -1,10 +1,13 @@
 [tool.poetry]
 name = "purifier"
-version = "0.2.5"
+version = "0.2.6"
 description = ""
 authors = ["Gleb Akhmerov <nontrivial-analysis@proton.me>"]
 packages = [ { include = "purifier.py" } ]
 readme = "README.md"
+
+[tool.poetry.urls]
+repository = "https://github.com/gleb-akhmerov/purifier"
 
 [tool.pytest.ini_options]
 python_files = ["tests.py"]
