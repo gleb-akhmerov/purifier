@@ -1,10 +1,11 @@
 [tool.poetry]
 name = "purifier"
-version = "0.2.8"
+version = "0.2.9"
 description = "A simple scraping library."
 authors = ["Gleb Akhmerov <nontrivial-analysis@proton.me>"]
 packages = [ { include = "purifier.py" } ]
 readme = "README.md"
+license = "AGPL-3.0-or-later"
 
 [tool.poetry.urls]
 "Homepage" = "https://github.com/gleb-akhmerov/purifier"
