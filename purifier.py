@@ -274,10 +274,3 @@ def constantly(x: B) -> Scraper[A, B]:
     Ignore input and return `x`.
     """
     return Scraper(lambda _: x)
-
-
-def take(n: int) -> Scraper[List[T], List[T]]:
-    """
-    Take up to first `n` elements from a list.
-    """
-    return Scraper(lambda xs: xs[:n])

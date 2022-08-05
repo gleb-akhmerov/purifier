@@ -1,4 +1,4 @@
-from purifier import html, xpath, maps, fields, one, constantly, take
+from purifier import html, xpath, maps, fields, one, constantly, jq
 
 
 def test_hacker_python():
@@ -15,7 +15,7 @@ def test_hacker_python():
                 url=xpath("@href") | one(),
             )
         )
-        | take(3)
+        | jq(".[:3]")
     )
 
     scraped = hacker_news_scraper.scrape("https://news.ycombinator.com")
