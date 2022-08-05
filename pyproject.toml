@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "purifier"
-version = "0.2.2"
+version = "0.2.5"
 description = ""
 authors = ["Gleb Akhmerov <nontrivial-analysis@proton.me>"]
 packages = [ { include = "purifier.py" } ]

@@ -44,4 +44,4 @@ result == [
 
 ## Tutorial
 
-See [docs/Tutorial.md](docs/Tutorial.md)
+See [docs/Tutorial.md](https://github.com/gleb-akhmerov/purifier/blob/main/docs/Tutorial.md)
