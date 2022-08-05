@@ -42,6 +42,13 @@ result == [
 ```
 
 
+## Installation
+
+```
+pip install purifier
+```
+
+
 ## Tutorial
 
 See [docs/Tutorial.md](https://github.com/gleb-akhmerov/purifier/blob/main/docs/Tutorial.md)
