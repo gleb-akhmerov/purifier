@@ -221,8 +221,8 @@ def base64() -> Scraper[str, bytes]:
     return Scraper(lambda b64_str: b64decode(b64_str.encode(), validate=True))
 
 
-def jq(path: str) -> Scraper[A, B]:
-    return Scraper(lambda inp: jq_lib.compile(path).input(inp).first())
+def jq(expr: str) -> Scraper[A, B]:
+    return Scraper(lambda inp: jq_lib.compile(expr).input(inp).first())
 
 
 def html_to_text() -> Scraper[HtmlElement, str]:
