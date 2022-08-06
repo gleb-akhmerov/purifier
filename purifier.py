@@ -191,7 +191,8 @@ class html(Scraper):
 
 
 def xpath(path: str) -> Scraper[HtmlElement, List[HtmlElement]]:
-    return Scraper(lambda dom: dom.xpath(path))
+    find = lxml.etree.XPath(path)
+    return Scraper(lambda dom: find(dom))
 
 
 def one() -> Scraper[List[A], A]:
