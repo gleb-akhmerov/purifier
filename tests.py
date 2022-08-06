@@ -1,7 +1,7 @@
 from purifier import html, xpath, maps, fields, one, constantly, jq
 
 
-def test_hacker_python():
+def test_hacker_news_python():
     with open("test_data/Hacker News.html") as f:
         html_str = f.read()
 
