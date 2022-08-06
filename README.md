@@ -49,6 +49,7 @@ pip install purifier
 ```
 
 
-## Tutorial
+## Docs
 
-See [docs/Tutorial.md](https://github.com/gleb-akhmerov/purifier/blob/main/docs/Tutorial.md)
+- [Tutorial](https://github.com/gleb-akhmerov/purifier/blob/main/docs/Tutorial.md)
+- [Available scrapers](https://github.com/gleb-akhmerov/purifier/blob/main/docs/Available-scrapers.md) — API reference.
