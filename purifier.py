@@ -159,13 +159,17 @@ class maps(Scraper[List[A], List[B]]):
 def request(
     headers: Optional[dict[str, str]] = None,
     lib: Literal["requests", "cloudscraper"] = "requests",
+    proxies: Optional[Dict[str, str]] = None,
 ) -> Scraper[str, str]:
     def scrape(url: str) -> str:
         session_by_lib = {
             "requests": requests.session,
             "cloudscraper": cloudscraper.create_scraper,
         }
-        session = session_by_lib[lib]()
+        session: requests.Session = session_by_lib[lib]()
+
+        if proxies:
+            session.proxies = proxies
 
         # https://scrapfly.io/blog/how-to-avoid-web-scraping-blocking-tls/
         adapter = TlsAdapter(ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1)  # prioritize TLS 1.2
