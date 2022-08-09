@@ -55,6 +55,10 @@ class ScrapeError(Exception):
     pass
 
 
+class GuardError(ScrapeError):
+    pass
+
+
 class Scraper(Generic[A, B]):
     def __init__(self, scrape_simple: Optional[Callable[[A], B]] = None) -> None:
         self._scrape_simple = scrape_simple
@@ -297,7 +301,7 @@ class guard(Scraper[A, A], Generic[A, B]):
     def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[A]:
         state2 = self.s._scrape_impl(state)
         if not state2.state:
-            raise ScrapeError(
+            raise GuardError(
                 f"{self.s} returned {state2.state}, expected a truthy value"
             )
         else:
