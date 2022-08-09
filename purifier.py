@@ -280,3 +280,34 @@ def constantly(x: B) -> Scraper[A, B]:
     Ignore input and return `x`.
     """
     return Scraper(lambda _: x)
+
+
+@dataclass
+class guard(Scraper[A, A], Generic[A, B]):
+    """
+    Verify that input is valid by scraper `s`.
+
+    For example, verify that XPath finds elements on a page: `guard(xpath(...))`
+
+    Pipe `s` to `nots` to check the opposite: `guard(xpath(...) | nots())`.
+    """
+
+    s: Scraper[A, B]
+
+    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[A]:
+        state2 = self.s._scrape_impl(state)
+        if not state2.state:
+            raise ScrapeError(
+                f"{self.s} returned {state2.state}, expected a truthy value"
+            )
+        else:
+            return state
+
+
+@dataclass
+class nots(Scraper[A, bool], Generic[A, B]):
+    s: Scraper[A, B]
+
+    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[bool]:
+        state2 = self.s._scrape_impl(state)
+        return state2.map(lambda x: not x)
