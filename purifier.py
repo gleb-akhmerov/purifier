@@ -304,10 +304,5 @@ class guard(Scraper[A, A], Generic[A, B]):
             return state
 
 
-@dataclass
-class nots(Scraper[A, bool], Generic[A, B]):
-    s: Scraper[A, B]
-
-    def _scrape_impl(self, state: ScraperState[A]) -> ScraperState[bool]:
-        state2 = self.s._scrape_impl(state)
-        return state2.map(lambda x: not x)
+def nots() -> Scraper[T, bool]:
+    return Scraper(lambda x: not x)
